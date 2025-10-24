@@ -79,6 +79,10 @@ fi
 # OVN_EGRESSFIREWALL_ENABLE - enable egressFirewall for ovn-kubernetes
 # OVN_EGRESSQOS_ENABLE - enable egress QoS for ovn-kubernetes
 # OVN_EGRESSSERVICE_ENABLE - enable egress Service for ovn-kubernetes
+# OVN_ADMIN_PBR_ENABLE - enable admin policy based route for ovn-kubernetes
+# OVNKUBE_ISTIO_AMBIENT_ENABLE - enable Istio Ambient support for ovn-kubernetes
+# OVNKUBE_ISTIO_AMBIENT_SNAT_IPV4 - IPv4 SNAT IP address for Istio Ambient health checks
+# OVNKUBE_ISTIO_AMBIENT_SNAT_IPV6 - IPv6 SNAT IP address for Istio Ambient health checks
 # OVN_UNPRIVILEGED_MODE - execute CNI ovs/netns commands from host (default no)
 # OVNKUBE_NODE_MODE - ovnkube node mode of operation, one of: full, dpu, dpu-host (default: full)
 # OVNKUBE_NODE_MGMT_PORT_NETDEV - ovnkube node management port netdev.
@@ -322,6 +326,12 @@ ovn_network_qos_enable=${OVN_NETWORK_QOS_ENABLE:-false}
 ovn_enable_dnsnameresolver=${OVN_ENABLE_DNSNAMERESOLVER:-false}
 # OVN_OBSERV_ENABLE - enable observability for ovnkube
 ovn_observ_enable=${OVN_OBSERV_ENABLE:-false}
+# OVNKUBE_ISTIO_AMBIENT_ENABLE - enable Istio Ambient support for ovn-kubernetes
+ovnkube_istio_ambient_enable=${OVNKUBE_ISTIO_AMBIENT_ENABLE:-false}
+# OVNKUBE_ISTIO_AMBIENT_SNAT_IPV4 - IPv4 SNAT IP for Istio Ambient
+ovnkube_istio_ambient_snat_ipv4=${OVNKUBE_ISTIO_AMBIENT_SNAT_IPV4:-}
+# OVNKUBE_ISTIO_AMBIENT_SNAT_IPV6 - IPv6 SNAT IP for Istio Ambient
+ovnkube_istio_ambient_snat_ipv6=${OVNKUBE_ISTIO_AMBIENT_SNAT_IPV6:-}
 # OVN_NOHOSTSUBNET_LABEL - node label indicating nodes managing their own network
 ovn_nohostsubnet_label=${OVN_NOHOSTSUBNET_LABEL:-""}
 # OVN_DISABLE_REQUESTEDCHASSIS - disable requested-chassis option during pod creation
@@ -1393,6 +1403,24 @@ ovn-master() {
   fi
   echo "ovn_enable_dnsnameresolver_flag=${ovn_enable_dnsnameresolver_flag}"
 
+  ovnkube_istio_ambient_enable_flag=
+  if [[ ${ovnkube_istio_ambient_enable} == "true" ]]; then
+    ovnkube_istio_ambient_enable_flag="--enable-istio-ambient-support"
+  fi
+  echo "ovnkube_istio_ambient_enable_flag=${ovnkube_istio_ambient_enable_flag}"
+
+  ovnkube_istio_ambient_snat_ipv4_flag=
+  if [[ -n "${ovnkube_istio_ambient_snat_ipv4}" ]]; then
+    ovnkube_istio_ambient_snat_ipv4_flag="--istio-ambient-snat-ipv4=${ovnkube_istio_ambient_snat_ipv4}"
+  fi
+  echo "ovnkube_istio_ambient_snat_ipv4_flag=${ovnkube_istio_ambient_snat_ipv4_flag}"
+
+  ovnkube_istio_ambient_snat_ipv6_flag=
+  if [[ -n "${ovnkube_istio_ambient_snat_ipv6}" ]]; then
+    ovnkube_istio_ambient_snat_ipv6_flag="--istio-ambient-snat-ipv6=${ovnkube_istio_ambient_snat_ipv6}"
+  fi
+  echo "ovnkube_istio_ambient_snat_ipv6_flag=${ovnkube_istio_ambient_snat_ipv6_flag}"
+
   /usr/bin/ovnkube --init-master ${K8S_NODE} \
     ${anp_enabled_flag} \
     ${disable_forwarding_flag} \
@@ -1430,6 +1458,9 @@ ovn-master() {
     ${nohostsubnet_label_option} \
     ${ovn_stateless_netpol_enable_flag} \
     ${ovn_disable_requestedchassis_flag} \
+    ${ovnkube_istio_ambient_enable_flag} \
+    ${ovnkube_istio_ambient_snat_ipv4_flag} \
+    ${ovnkube_istio_ambient_snat_ipv6_flag} \
     --cluster-subnets ${net_cidr} --k8s-service-cidr=${svc_cidr} \
     --gateway-mode=${ovn_gateway_mode} ${ovn_gateway_opts} \
     --host-network-namespace ${ovn_host_network_namespace} \
@@ -1718,6 +1749,24 @@ ovnkube-controller() {
   fi
   echo "ovn_stateless_netpol_enable_flag: ${ovn_stateless_netpol_enable_flag}"
 
+  ovnkube_istio_ambient_enable_flag=
+  if [[ ${ovnkube_istio_ambient_enable} == "true" ]]; then
+    ovnkube_istio_ambient_enable_flag="--enable-istio-ambient-support"
+  fi
+  echo "ovnkube_istio_ambient_enable_flag=${ovnkube_istio_ambient_enable_flag}"
+
+  ovnkube_istio_ambient_snat_ipv4_flag=
+  if [[ -n "${ovnkube_istio_ambient_snat_ipv4}" ]]; then
+    ovnkube_istio_ambient_snat_ipv4_flag="--istio-ambient-snat-ipv4=${ovnkube_istio_ambient_snat_ipv4}"
+  fi
+  echo "ovnkube_istio_ambient_snat_ipv4_flag=${ovnkube_istio_ambient_snat_ipv4_flag}"
+
+  ovnkube_istio_ambient_snat_ipv6_flag=
+  if [[ -n "${ovnkube_istio_ambient_snat_ipv6}" ]]; then
+    ovnkube_istio_ambient_snat_ipv6_flag="--istio-ambient-snat-ipv6=${ovnkube_istio_ambient_snat_ipv6}"
+  fi
+  echo "ovnkube_istio_ambient_snat_ipv6_flag=${ovnkube_istio_ambient_snat_ipv6_flag}"
+
   echo "=============== ovnkube-controller ========== MASTER ONLY"
   /usr/bin/ovnkube --init-ovnkube-controller ${K8S_NODE} \
     ${anp_enabled_flag} \
@@ -1754,6 +1803,9 @@ ovnkube-controller() {
     ${ovn_v6_masquerade_subnet_opt} \
     ${network_qos_enabled_flag} \
     ${ovn_enable_dnsnameresolver_flag} \
+    ${ovnkube_istio_ambient_enable_flag} \
+    ${ovnkube_istio_ambient_snat_ipv4_flag} \
+    ${ovnkube_istio_ambient_snat_ipv6_flag} \
     --cluster-subnets ${net_cidr} --k8s-service-cidr=${svc_cidr} \
     --gateway-mode=${ovn_gateway_mode} \
     --host-network-namespace ${ovn_host_network_namespace} \
@@ -2192,6 +2244,24 @@ ovnkube-controller-with-node() {
   fi
   echo "ovn_disable_requestedchassis_flag=${ovn_disable_requestedchassis_flag}"
 
+  ovnkube_istio_ambient_enable_flag=
+  if [[ ${ovnkube_istio_ambient_enable} == "true" ]]; then
+    ovnkube_istio_ambient_enable_flag="--enable-istio-ambient-support"
+  fi
+  echo "ovnkube_istio_ambient_enable_flag=${ovnkube_istio_ambient_enable_flag}"
+
+  ovnkube_istio_ambient_snat_ipv4_flag=
+  if [[ -n "${ovnkube_istio_ambient_snat_ipv4}" ]]; then
+    ovnkube_istio_ambient_snat_ipv4_flag="--istio-ambient-snat-ipv4=${ovnkube_istio_ambient_snat_ipv4}"
+  fi
+  echo "ovnkube_istio_ambient_snat_ipv4_flag=${ovnkube_istio_ambient_snat_ipv4_flag}"
+
+  ovnkube_istio_ambient_snat_ipv6_flag=
+  if [[ -n "${ovnkube_istio_ambient_snat_ipv6}" ]]; then
+    ovnkube_istio_ambient_snat_ipv6_flag="--istio-ambient-snat-ipv6=${ovnkube_istio_ambient_snat_ipv6}"
+  fi
+  echo "ovnkube_istio_ambient_snat_ipv6_flag=${ovnkube_istio_ambient_snat_ipv6_flag}"
+
   echo "=============== ovnkube-controller-with-node --init-ovnkube-controller-with-node=========="
   /usr/bin/ovnkube --init-ovnkube-controller ${K8S_NODE} --init-node ${K8S_NODE} \
     ${anp_enabled_flag} \
@@ -2247,6 +2317,9 @@ ovnkube-controller-with-node() {
     ${network_qos_enabled_flag} \
     ${ovn_enable_dnsnameresolver_flag} \
     ${ovn_disable_requestedchassis_flag} \
+    ${ovnkube_istio_ambient_enable_flag} \
+    ${ovnkube_istio_ambient_snat_ipv4_flag} \
+    ${ovnkube_istio_ambient_snat_ipv6_flag} \
     --cluster-subnets ${net_cidr} --k8s-service-cidr=${svc_cidr} \
     --export-ovs-metrics \
     --gateway-mode=${ovn_gateway_mode} ${ovn_gateway_opts} \
@@ -2867,6 +2940,24 @@ ovn-node() {
     ovn_v6_masquerade_subnet_opt="--gateway-v6-masquerade-subnet=${ovn_v6_masquerade_subnet}"
   fi
 
+  ovnkube_istio_ambient_enable_flag=
+  if [[ ${ovnkube_istio_ambient_enable} == "true" ]]; then
+    ovnkube_istio_ambient_enable_flag="--enable-istio-ambient-support"
+  fi
+  echo "ovnkube_istio_ambient_enable_flag=${ovnkube_istio_ambient_enable_flag}"
+
+  ovnkube_istio_ambient_snat_ipv4_flag=
+  if [[ -n "${ovnkube_istio_ambient_snat_ipv4}" ]]; then
+    ovnkube_istio_ambient_snat_ipv4_flag="--istio-ambient-snat-ipv4=${ovnkube_istio_ambient_snat_ipv4}"
+  fi
+  echo "ovnkube_istio_ambient_snat_ipv4_flag=${ovnkube_istio_ambient_snat_ipv4_flag}"
+
+  ovnkube_istio_ambient_snat_ipv6_flag=
+  if [[ -n "${ovnkube_istio_ambient_snat_ipv6}" ]]; then
+    ovnkube_istio_ambient_snat_ipv6_flag="--istio-ambient-snat-ipv6=${ovnkube_istio_ambient_snat_ipv6}"
+  fi
+  echo "ovnkube_istio_ambient_snat_ipv6_flag=${ovnkube_istio_ambient_snat_ipv6_flag}"
+
   echo "=============== ovn-node   --init-node"
   /usr/bin/ovnkube --init-node ${K8S_NODE} \
         ${anp_enabled_flag} \
@@ -2910,6 +3001,9 @@ ovn-node() {
         ${routable_mtu_flag} \
         ${sflow_targets} \
         ${network_qos_enabled_flag} \
+        ${ovnkube_istio_ambient_enable_flag} \
+        ${ovnkube_istio_ambient_snat_ipv4_flag} \
+        ${ovnkube_istio_ambient_snat_ipv6_flag} \
         --cluster-subnets ${net_cidr} --k8s-service-cidr=${svc_cidr} \
         --export-ovs-metrics \
         --gateway-mode=${ovn_gateway_mode} ${ovn_gateway_opts} \
