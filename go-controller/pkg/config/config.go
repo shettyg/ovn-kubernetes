@@ -158,6 +158,7 @@ var (
 	OVNKubernetesFeature = OVNKubernetesFeatureConfig{
 		EgressIPReachabiltyTotalTimeout: 1,
 		AdvertisedUDNIsolationMode:      AdvertisedUDNIsolationModeStrict,
+		IstioAmbientSNATIPv4:            "169.254.7.127",
 	}
 
 	// OvnNorth holds northbound OVN database client and server authentication and location details
@@ -464,6 +465,17 @@ type OVNKubernetesFeatureConfig struct {
 	// This feature requires a kernel fix https://github.com/torvalds/linux/commit/7f3287db654395f9c5ddd246325ff7889f550286
 	// to work on a kind cluster. Flag allows to disable it for current CI, will be turned on when github runners have this fix.
 	AdvertisedUDNIsolationMode string `gcfg:"advertised-udn-isolation-mode"`
+	// EnableIstioAmbientSupport enables support for Istio Ambient mesh by adding
+	// logical router policies for custom SNAT IPs used by Istio for kubelet health checks
+	EnableIstioAmbientSupport bool `gcfg:"enable-istio-ambient-support"`
+	// IstioAmbientSNATIPv4 is the IPv4 SNAT IP address used by Istio Ambient for kubelet health checks.
+	// This IP needs to be routed back through the management port for proper return traffic handling.
+	// Defaults to 169.254.7.127 if not specified when EnableIstioAmbientSupport is true.
+	IstioAmbientSNATIPv4 string `gcfg:"istio-ambient-snat-ipv4"`
+	// IstioAmbientSNATIPv6 is the IPv6 SNAT IP address used by Istio Ambient for kubelet health checks.
+	// This IP needs to be routed back through the management port for proper return traffic handling.
+	// If specified, enables dual-stack mode. If empty, only IPv4 mode is used.
+	IstioAmbientSNATIPv6 string `gcfg:"istio-ambient-snat-ipv6"`
 }
 
 // GatewayMode holds the node gateway mode
@@ -1200,6 +1212,24 @@ var OVNK8sFeatureFlags = []cli.Flag{
 		Usage:       "Configure to use NetworkQoS CRD feature with ovn-kubernetes.",
 		Destination: &cliConfig.OVNKubernetesFeature.EnableNetworkQoS,
 		Value:       OVNKubernetesFeature.EnableNetworkQoS,
+	},
+	&cli.BoolFlag{
+		Name:        "enable-istio-ambient-support",
+		Usage:       "Configure to enable Istio Ambient support by adding logical router policies for custom SNAT IPs used by Istio for kubelet health checks.",
+		Destination: &cliConfig.OVNKubernetesFeature.EnableIstioAmbientSupport,
+		Value:       OVNKubernetesFeature.EnableIstioAmbientSupport,
+	},
+	&cli.StringFlag{
+		Name:        "istio-ambient-snat-ipv4",
+		Usage:       "The IPv4 SNAT IP address used by Istio Ambient for kubelet health checks. Defaults to 169.254.7.127 if not specified when --enable-istio-ambient-support is true.",
+		Destination: &cliConfig.OVNKubernetesFeature.IstioAmbientSNATIPv4,
+		Value:       OVNKubernetesFeature.IstioAmbientSNATIPv4,
+	},
+	&cli.StringFlag{
+		Name:        "istio-ambient-snat-ipv6",
+		Usage:       "The IPv6 SNAT IP address used by Istio Ambient for kubelet health checks. If specified, enables dual-stack mode. If empty, only IPv4 mode is used.",
+		Destination: &cliConfig.OVNKubernetesFeature.IstioAmbientSNATIPv6,
+		Value:       OVNKubernetesFeature.IstioAmbientSNATIPv6,
 	},
 }
 
@@ -2063,6 +2093,25 @@ func buildOVNKubernetesFeatureConfig(cli, file *config) error {
 		return fmt.Errorf("invalid advertised-udn-isolation-mode %q: expect one of %s or %s",
 			OVNKubernetesFeature.AdvertisedUDNIsolationMode, AdvertisedUDNIsolationModeStrict, AdvertisedUDNIsolationModeLoose)
 	}
+
+	// Validate Istio Ambient SNAT IP addresses if enabled
+	if OVNKubernetesFeature.EnableIstioAmbientSupport {
+		// IPv4 SNAT IP is required for Istio Ambient (IPv6-only mode not supported)
+		if OVNKubernetesFeature.IstioAmbientSNATIPv4 == "" {
+			return fmt.Errorf("IPv4 SNAT IP address is required when Istio Ambient support is enabled (IPv6-only mode not supported)")
+		}
+		if ip := net.ParseIP(OVNKubernetesFeature.IstioAmbientSNATIPv4); ip == nil || !utilnet.IsIPv4(ip) {
+			return fmt.Errorf("invalid IPv4 SNAT IP address for Istio Ambient: %q", OVNKubernetesFeature.IstioAmbientSNATIPv4)
+		}
+
+		// Validate IPv6 SNAT IP if provided (optional for dual-stack)
+		if OVNKubernetesFeature.IstioAmbientSNATIPv6 != "" {
+			if ip := net.ParseIP(OVNKubernetesFeature.IstioAmbientSNATIPv6); ip == nil || !utilnet.IsIPv6(ip) {
+				return fmt.Errorf("invalid IPv6 SNAT IP address for Istio Ambient: %q", OVNKubernetesFeature.IstioAmbientSNATIPv6)
+			}
+		}
+	}
+
 	return nil
 }
 
